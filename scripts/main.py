@@ -285,10 +285,10 @@ def main():
                 if proxies and proxy_index < len(proxies):
                     proxy_config = proxies[proxy_index]
                     logging.info(f"Using proxy: {proxy_config['server']}")
-                    return p.chromium.launch(headless=False, proxy=proxy_config, args=[f'--user-agent={selected_user_agent}'])
+                    return p.chromium.launch(headless=True, proxy=proxy_config, args=[f'--user-agent={selected_user_agent}'])
                 else:
                     logging.info("No proxy used")
-                    return p.chromium.launch(headless=False, args=[f'--user-agent={selected_user_agent}'])
+                    return p.chromium.launch(headless=True, args=[f'--user-agent={selected_user_agent}'])
 
             # Initialize browser
             browser = init_browser()
