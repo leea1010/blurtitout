@@ -1,0 +1,8 @@
+# Install Thu vien
+pip install playwright
+playwright install
+pip install validators
+
+
+# Run code
+python main.py
