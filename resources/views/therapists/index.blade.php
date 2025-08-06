@@ -7,7 +7,7 @@
         <div class="header-stats">Total: {{ $therapists->total() ?? 0 }} therapists found</div>
     </div>
     <div class="button-group">
-        <a href="{{ route('therapists.index') }}?export=csv" class="btn btn-success">Export CSV</a>
+        <a href="{{ route('therapists.export') }}{{ request('search') ? '?search='.request('search') : '' }}" class="btn btn-success">Export CSV</a>
     </div>
 </div>
 

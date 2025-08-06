@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\TherapistController;
+use App\Http\Controllers\ExportController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -17,6 +18,21 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+
+// Export page
+Route::get('/export', function () {
+    return view('export-simple');
+})->name('export.page');
+
+// Export test page  
+Route::get('/export-test', function () {
+    return view('export-test');
+})->name('export.test.page');
+
+// Export debug page
+Route::get('/export-debug', function () {
+    return view('export-debug');
+})->name('export.debug.page');
 
 // Debug route
 Route::get('/debug', function () {
@@ -38,6 +54,28 @@ Route::get('/results/export', [TherapistController::class, 'export'])->name('the
 Route::resource('therapists', TherapistController::class)->except(['index']);
 
 use Illuminate\Support\Facades\File;
+
+// Export routes
+Route::prefix('export')->group(function () {
+    Route::get('/test', function () {
+        return response()->json(['message' => 'Export routes working', 'time' => now()]);
+    });
+    Route::get('/simple-download', function () {
+        $service = new \App\Services\CsvExportService();
+        $therapists = \App\Models\Therapist::limit(3)->get();
+        return $service->exportTherapists($therapists, 'simple_test.csv');
+    });
+    Route::get('/sample', function () {
+        $service = new \App\Services\CsvExportService();
+        $therapists = \App\Models\Therapist::limit(5)->get();
+        return $service->exportTherapists($therapists, 'sample_therapists.csv');
+    });
+    Route::get('/therapists', [ExportController::class, 'exportTherapists'])->name('export.therapists');
+    Route::post('/therapists/selected', [ExportController::class, 'exportSelectedTherapists'])->name('export.therapists.selected');
+    Route::get('/users', [ExportController::class, 'exportUsers'])->name('export.users');
+    Route::post('/users/selected', [ExportController::class, 'exportSelectedUsers'])->name('export.users.selected');
+    Route::get('/stats', [ExportController::class, 'getExportStats'])->name('export.stats');
+});
 
 Route::get('/read-result/{date?}', function ($date = null) {
     if (!$date) {

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Therapist;
+use App\Services\CsvExportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
@@ -146,51 +147,13 @@ class TherapistController extends Controller
 
         $therapists = $query->orderBy('created_at', 'desc')->get();
 
-        $filename = 'therapists_' . date('Y-m-d_H-i-s') . '.csv';
+        $filename = 'therapists_from_results_' . date('Y-m-d_H-i-s') . '.csv';
+        if ($request->has('search')) {
+            $filename = 'search_' . str_replace(' ', '_', $request->search) . '_' . date('Y-m-d_H-i-s') . '.csv';
+        }
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"$filename\"",
-        ];
-
-        $callback = function () use ($therapists) {
-            $file = fopen('php://output', 'w');
-
-            // CSV headers
-            fputcsv($file, [
-                'ID',
-                'Name',
-                'Title',
-                'City',
-                'Experience Duration',
-                'Avatar',
-                'Avatar Local',
-                'Specialty',
-                'General Expertise',
-                'Source',
-                'Created At'
-            ]);
-
-            // CSV data
-            foreach ($therapists as $therapist) {
-                fputcsv($file, [
-                    $therapist->id,
-                    $therapist->name,
-                    $therapist->title,
-                    $therapist->city,
-                    $therapist->experience_duration,
-                    $therapist->avatar,
-                    $therapist->avatar_list,
-                    is_array($therapist->specialty) ? implode(', ', $therapist->specialty) : $therapist->specialty,
-                    is_array($therapist->general_expertise) ? implode(', ', $therapist->general_expertise) : $therapist->general_expertise,
-                    $therapist->source,
-                    $therapist->created_at
-                ]);
-            }
-
-            fclose($file);
-        };
-
-        return response()->stream($callback, 200, $headers);
+        // Use the new CsvExportService with proper format
+        $csvService = new CsvExportService();
+        return $csvService->exportTherapists($therapists, $filename);
     }
 }
