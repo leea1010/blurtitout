@@ -47,11 +47,15 @@
                     <th style="width: 50px;">ID</th>
                     <th style="width: 60px;">Avatar</th>
                     <th style="width: 150px;">Name</th>
-                    <th style="width: 180px;">Title</th>
+                    <th style="width: 120px;">Title</th>
                     <th style="width: 100px;">City</th>
+                    <th style="width: 80px;">Country</th>
+                    <th style="width: 60px;">Gender</th>
                     <th style="width: 80px;">Experience</th>
-                    <th style="width: 180px;">Specialty</th>
-                    <th style="width: 160px;">Expertise</th>
+                    <th style="width: 100px;">Services</th>
+                    <th style="width: 120px;">Online Offered</th>
+                    <th style="width: 150px;">Specialty</th>
+                    <th style="width: 120px;">Languages</th>
                     <th style="width: 70px;">Source</th>
                     <th style="width: 80px;">Actions</th>
                 </tr>
@@ -90,14 +94,51 @@
                         @if($therapist->city)
                         <span class="badge badge-light">{{ $therapist->city }}</span>
                         @else
-                        <span class="text-muted"></span>
+                        <span class="text-muted">-</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if($therapist->country)
+                        <span class="badge badge-success">{{ $therapist->country }}</span>
+                        @else
+                        <span class="text-muted">-</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if($therapist->gender)
+                        <span class="badge badge-{{ $therapist->gender == 'Male' ? 'primary' : ($therapist->gender == 'Female' ? 'danger' : 'secondary') }}">
+                            {{ $therapist->gender }}
+                        </span>
+                        @else
+                        <span class="text-muted">-</span>
                         @endif
                     </td>
                     <td>
                         @if($therapist->experience_duration)
                         <span class="badge badge-primary">{{ $therapist->experience_duration }} years</span>
                         @else
-                        <span class="text-muted"></span>
+                        <span class="text-muted">-</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if($therapist->services_offered)
+                        <span class="badge badge-info">{{ $therapist->services_offered }}</span>
+                        @else
+                        <span class="text-muted">-</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if($therapist->online_offered && is_array($therapist->online_offered))
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach(array_slice($therapist->online_offered, 0, 2) as $service)
+                            <span class="badge badge-warning">{{ $service }}</span>
+                            @endforeach
+                            @if(count($therapist->online_offered) > 2)
+                            <span class="badge badge-secondary">+{{ count($therapist->online_offered) - 2 }}</span>
+                            @endif
+                        </div>
+                        @else
+                        <span class="text-muted">-</span>
                         @endif
                     </td>
                     <td>
@@ -113,23 +154,21 @@
                             @endif
                         </div>
                         @else
-                        <span class="text-muted"></span>
+                        <span class="text-muted">-</span>
                         @endif
                     </td>
                     <td>
-                        @if($therapist->general_expertise && is_array($therapist->general_expertise) && count($therapist->general_expertise) > 0)
+                        @if($therapist->languages && is_array($therapist->languages))
                         <div class="d-flex flex-wrap gap-1">
-                            @foreach(array_slice($therapist->general_expertise, 0, 2) as $expertise)
-                            <span class="badge badge-success">{{ Str::limit($expertise, 10) }}</span>
+                            @foreach(array_slice($therapist->languages, 0, 2) as $lang)
+                            <span class="badge badge-dark">{{ $lang }}</span>
                             @endforeach
-                            @if(count($therapist->general_expertise) > 2)
-                            <span class="badge badge-secondary" title="{{ implode(', ', array_slice($therapist->general_expertise, 2)) }}">
-                                +{{ count($therapist->general_expertise) - 2 }}
-                            </span>
+                            @if(count($therapist->languages) > 2)
+                            <span class="badge badge-secondary">+{{ count($therapist->languages) - 2 }}</span>
                             @endif
                         </div>
                         @else
-                        <span class="text-muted"></span>
+                        <span class="text-muted">-</span>
                         @endif
                     </td>
                     <td>

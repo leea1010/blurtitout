@@ -99,6 +99,25 @@ class CsvExportService
             return implode(', ', array_filter($value));
         }
 
+        // Handle JSON strings that should be arrays
+        if (is_string($value) && (str_starts_with($value, '[') || str_starts_with($value, '{'))) {
+            $decoded = json_decode($value, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                // If it's a simple array of values
+                if (array_is_list($decoded)) {
+                    return implode(', ', array_filter($decoded));
+                }
+                // If it's an associative array, convert to key:value format
+                $pairs = [];
+                foreach ($decoded as $k => $v) {
+                    if (is_string($v) || is_numeric($v)) {
+                        $pairs[] = $k . ':' . $v;
+                    }
+                }
+                return implode(', ', $pairs);
+            }
+        }
+
         if (is_bool($value)) {
             return $value ? 'Yes' : 'No';
         }

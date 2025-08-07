@@ -473,7 +473,7 @@ def extract_therapist_info(page, browser, existing_names, user_agents, filters=N
             profile_page.close()
         return []
 
-def save_therapists_data(new_data, result_file='therapists_result.json'):
+def save_therapists_data(new_data, result_file='scripts/therapists_result.json'):
     """Save therapists data to file, ensuring valid JSON."""
     try:
         existing_data = []
