@@ -1,6 +1,6 @@
 from playwright.sync_api import sync_playwright, TimeoutError
 import json
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode
 import logging
 import re
 import random
@@ -9,6 +9,8 @@ import time
 import requests
 from datetime import datetime
 import validators
+import uuid
+from itertools import product
 
 # Configure logging to console only
 logging.basicConfig(
@@ -99,7 +101,112 @@ def download_image(image_url, name, base_dir, user_agents):
         logging.error(f"Error downloading image for {name}: {str(e)}")
         return ""
 
-def extract_therapist_info(page, browser, existing_names, user_agents):
+def apply_filters(page, link, user_agents):
+    """Apply filters dynamically for a location page and return URLs with filter parameters."""
+    try:
+        # Click the filter button to open the modal
+        filter_button_selector = 'button.btn.filter-btn[data-target="#modal-filter"]'
+        page.wait_for_selector(filter_button_selector, timeout=10000)
+        filter_button = page.query_selector(filter_button_selector)
+        if not filter_button:
+            logging.error(f"Filter button not found on {link}")
+            return [(link, {})]  # Return original link with empty filters if button not found
+        filter_button.click()
+        logging.info(f"Clicked filter button on {link}")
+        random_wait(1, 2)
+
+        # Wait for the filter modal to appear
+        modal_selector = 'div.modal-dialog'
+        page.wait_for_selector(modal_selector, timeout=10000)
+        
+        # Get filter options dynamically
+        languages = []
+        identities = []
+        preferences = []
+
+        # Extract languages
+        language_select = page.query_selector('select#therapists-languages-select')
+        if language_select:
+            language_options = language_select.query_selector_all('option')
+            languages = [(opt.get_attribute('value'), opt.inner_text().strip()) for opt in language_options if opt.get_attribute('value')]
+            logging.info(f"Found languages: {languages}")
+        else:
+            logging.warning(f"No language filter found on {link}")
+
+        # Extract identities (exclude Nonconforming)
+        identity_select = page.query_selector('select#therapists-identities-select')
+        if identity_select:
+            identity_options = identity_select.query_selector_all('option')
+            identities = [(opt.get_attribute('value'), opt.inner_text().strip()) for opt in identity_options if opt.get_attribute('value') and opt.get_attribute('value') != 'Nonconforming']
+            logging.info(f"Found identities (excluding Nonconforming): {identities}")
+        else:
+            logging.warning(f"No identity filter found on {link}")
+
+        # Extract preferences
+        preference_select = page.query_selector('select#therapists-preferences-select')
+        if preference_select:
+            preference_options = preference_select.query_selector_all('option')
+            preferences = [(opt.get_attribute('value'), opt.inner_text().strip()) for opt in preference_options if opt.get_attribute('value')]
+            logging.info(f"Found preferences: {preferences}")
+        else:
+            logging.warning(f"No preference filter found on {link}")
+
+        # Close the modal
+        close_button = page.query_selector('button.close[data-dismiss="modal"]')
+        if close_button:
+            close_button.click()
+            logging.info("Closed filter modal")
+            random_wait(1, 2)
+
+        # Prepare filter options and their corresponding types
+        filter_options = []
+        filter_types = []
+        if languages:
+            filter_options.append(languages)
+            filter_types.append('languages')
+        if identities:
+            filter_options.append(identities)
+            filter_types.append('identities')
+        if preferences:
+            filter_options.append(preferences)
+            filter_types.append('preferences')
+
+        # Generate filter URLs based on available filters
+        filter_urls = []
+        if not filter_options:
+            logging.info(f"No filters available for {link}")
+            return [(link, {})]
+
+        # Create all combinations of available filters
+        for combination in product(*filter_options):
+            params = {}
+            filters = {}
+            for i, (value, label) in enumerate(combination):
+                filter_type = filter_types[i]
+                params[filter_type] = value
+                filters[filter_type] = label
+            filter_url = f"{link}?{urlencode(params)}"
+            filter_urls.append((filter_url, filters))
+            logging.info(f"Generated filter URL: {filter_url} with filters: {filters}")
+
+        # Log the HTML of the modal for debugging if no languages found
+        if not languages:
+            modal_html = page.query_selector(modal_selector).inner_html() if page.query_selector(modal_selector) else ""
+            logging.debug(f"Filter modal HTML (no languages found): {modal_html}")
+
+        return filter_urls
+
+    except TimeoutError:
+        logging.error(f"Timeout while applying filters on {link}")
+        return [(link, {})]
+    except Exception as e:
+        logging.error(f"Error applying filters on {link}: {str(e)}")
+        # Log the HTML of the modal for debugging
+        modal_html = page.query_selector(modal_selector).inner_html() if page.query_selector(modal_selector) else ""
+        logging.debug(f"Filter modal HTML (error case): {modal_html}")
+        return [(link, {})]
+
+def extract_therapist_info(page, browser, existing_names, user_agents, filters=None):
     """Extract therapist details from a page, skipping those already in existing_names."""
     therapists = []
     # Get base directory for saving images (same directory as the script)
@@ -154,16 +261,25 @@ def extract_therapist_info(page, browser, existing_names, user_agents):
                 logging.error(f"Error extracting avatar for {name}: {str(e)}")
             avatar_local_path = download_image(avatar_url, name, base_dir, user_agents) if avatar_url != '' else ''
             
-            # Title
-            title = ''
+            # License (from therapist card)
+            license = ''
             try:
-                title_elements = card.query_selector_all('div.name-location-cred-block div')
-                if len(title_elements) > 1:
-                    title_text = title_elements[1].inner_text() or ''
-                    if 'License Type' not in title_text:
-                        title = title_text
+                license_element = card.query_selector('div[notranslate]:has-text("License: ")')
+                if license_element:
+                    license_text = license_element.inner_text().strip() or ''
+                    logging.info(f"Raw license text for {name}: {license_text}")
+                    if license_text.startswith('License: '):
+                        license = license_text.replace('License: ', '').strip()
+                    else:
+                        license = ''
+                    logging.info(f"Extracted license for {name}: {license}")
+                else:
+                    logging.warning(f"No license element found for {name} in card")
             except Exception as e:
-                logging.error(f"Error extracting title for {name}: {str(e)}")
+                logging.error(f"Error extracting license for {name}: {str(e)}")
+                # Log the inner HTML of the card for debugging
+                card_html = card.inner_html() if card else ''
+                logging.debug(f"Card HTML for {name}: {card_html}")
             
             # Specialty
             specialty_list = ['']
@@ -173,22 +289,17 @@ def extract_therapist_info(page, browser, existing_names, user_agents):
             except Exception as e:
                 logging.error(f"Error extracting specialties for {name}: {str(e)}")
             
-            # Experience Duration
-            experience = ''
-            try:
-                experience_elements = page.query_selector_all('div:not(.specialties-block):not(.name-location-cred-block)')
-                for elem in experience_elements:
-                    text = elem.inner_text() or ''
-                    if 'years offering treatment' in text:
-                        match = re.search(r'(\d+)\s*years offering treatment', text)
-                        experience = match.group(1) if match else ''
-                        break
-            except Exception as e:
-                logging.error(f"Error extracting experience for {name}: {str(e)}")
-            
-            # Extract profile link and additional areas of focus
+            # Extract profile link, additional areas of focus, state, state_code, clinical approaches, services offered, about, experience, and languages
             general_expertise = []
             profile_url = ''
+            state = []
+            state_code = []
+            clinical_approaches = ['']
+            online_offered = ['']
+            about = ''
+            experience_duration = ''
+            experience = ''
+            languages = ['']
             try:
                 profile_link_element = card.query_selector('a:has-text("View Profile")')
                 if profile_link_element:
@@ -198,24 +309,158 @@ def extract_therapist_info(page, browser, existing_names, user_agents):
                         random_wait()
                         profile_page.goto(profile_url, wait_until='networkidle', timeout=15000)
                         logging.info(f"Visiting profile page for {name}: {profile_url}")
+                        
+                        # Extract title from profile page
+                        try:
+                            profile_page.wait_for_selector('h1.counselor-profile-header__name', timeout=10000)
+                            title_element = profile_page.query_selector('h1.counselor-profile-header__name')
+                            if title_element:
+                                title_text = title_element.inner_text() or ''
+                                logging.info(f"Raw title text for {name}: {title_text}")
+                                # Split by comma and take all parts after the first one, join back with commas
+                                title_parts = title_text.split(',')
+                                title = ','.join(title_parts[1:]).strip() if len(title_parts) > 1 else ''
+                                logging.info(f"Extracted title for {name}: {title}")
+                            else:
+                                logging.warning(f"No title element found for {name} on {profile_url}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for h1.counselor-profile-header__name on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting title for {name} on {profile_url}: {str(e)}")
+                        
+                        # Extract additional areas of focus
                         focus_elements = profile_page.query_selector_all('p b:has-text("Additional areas of focus:") ~ span.hidden_counselor_secondary span[isolate]')
                         general_expertise = [elem.inner_text().strip() for elem in focus_elements if elem.inner_text().strip()] or []
                         logging.info(f"Extracted additional areas for {name}: {general_expertise}")
+                        
+                        # Extract state and state_code from licensing section
+                        try:
+                            profile_page.wait_for_selector('div#licensing h2.content__title:has-text("License information")', timeout=10000)
+                            license_elements = profile_page.query_selector_all('div#licensing p')
+                            state_list = []
+                            state_code_list = []
+                            if license_elements:
+                                license_texts = [elem.inner_text().strip() for elem in license_elements if elem.inner_text().strip()]
+                                logging.info(f"Raw license texts for {name}: {license_texts}")
+                                for license_text in license_texts:
+                                    license_parts = license_text.split()
+                                    if len(license_parts) >= 2:  # Expecting at least "AZ LPC-22691"
+                                        state_list.append(license_parts[0])
+                                        state_code_list.append(license_parts[-1])
+                                state = state_list
+                                state_code = state_code_list
+                                logging.info(f"Extracted state for {name}: {state}, state_code: {state_code}")
+                            else:
+                                logging.warning(f"No license information found for {name} on {profile_url}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for license information on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting license information for {name} on {profile_url}: {str(e)}")
+                        
+                        # Extract clinical approaches
+                        try:
+                            profile_page.wait_for_selector('div#professional-experience p:has-text("Clinical approaches:")', timeout=10000)
+                            clinical_approach_elements = profile_page.query_selector_all('div#professional-experience p:has-text("Clinical approaches:") span[isolate]')
+                            clinical_approaches = [elem.inner_text().strip() for elem in clinical_approach_elements if elem.inner_text().strip()] or ['']
+                            logging.info(f"Extracted clinical approaches for {name}: {clinical_approaches}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for clinical approaches on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting clinical approaches for {name} on {profile_url}: {str(e)}")
+                        
+                        # Extract services offered
+                        try:
+                            profile_page.wait_for_selector('div#services-offered div.services-offered-container', timeout=10000)
+                            service_elements = profile_page.query_selector_all('div#services-offered div.services-offered-container span')
+                            online_offered = [elem.inner_text().strip() for elem in service_elements if elem.inner_text().strip()] or ['']
+                            logging.info(f"Extracted services offered for {name}: {online_offered}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for services offered on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting services offered for {name} on {profile_url}: {str(e)}")
+                        
+                        # Extract about information
+                        try:
+                            profile_page.wait_for_selector('div#about p', timeout=10000)
+                            about_element = profile_page.query_selector('div#about p')
+                            about = about_element.inner_text().strip() if about_element and about_element.inner_text().strip() else ''
+                            logging.info(f"Extracted about for {name}: {about}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for about information on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting about for {name} on {profile_url}: {str(e)}")
+                        
+                        # Extract experience duration and full experience text
+                        try:
+                            profile_page.wait_for_selector('div#professional-experience span.bg-yellow-100.tag', timeout=10000)
+                            experience_element = profile_page.query_selector('div#professional-experience span.bg-yellow-100.tag')
+                            if experience_element:
+                                experience_text = experience_element.inner_text().strip() or ''
+                                logging.info(f"Raw experience text for {name}: {experience_text}")
+                                experience = experience_text
+                                # Extract only the number of years for experience_duration
+                                match = re.search(r'(\d+)', experience_text)
+                                experience_duration = match.group(1) if match else ''
+                                logging.info(f"Extracted experience_duration for {name}: {experience_duration}")
+                            else:
+                                logging.warning(f"No experience element found for {name} on {profile_url}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for experience information on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting experience for {name} on {profile_url}: {str(e)}")
+                        
+                        # Extract languages from profile
+                        try:
+                            profile_page.wait_for_selector('div#languages div.tag__container', timeout=10000)
+                            language_elements = profile_page.query_selector_all('div#languages div.tag__container span.bg-blue-100.tag')
+                            languages = [elem.inner_text().strip() for elem in language_elements if elem.inner_text().strip()] or ['']
+                            logging.info(f"Extracted languages for {name}: {languages}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for languages on {profile_url}")
+                            languages = ['']
+                        except Exception as e:
+                            logging.error(f"Error extracting languages for {name} on {profile_url}: {str(e)}")
+                            languages = ['']
+                            
             except Exception as e:
                 logging.error(f"Error extracting profile data for {name} at {profile_url}: {str(e)}")
+            
+            # Use filter values for languages if profile languages are empty or ['']
+            if not languages or languages == ['']:
+                languages = [filters.get('languages', '')] if filters else ['']
+                logging.info(f"No valid languages from profile for {name}, using filter language: {languages}")
+            
+            # Use filter values for gender and other_traits
+            gender = filters.get('identities', '') if filters else ''
+            other_traits = filters.get('preferences', '') if filters else ''
             
             therapist_data = {
                 'avatar': avatar_url,
                 'avatar_local_path': avatar_local_path,
                 'name': name,
                 'title': title,
+                'license': license,
                 'specialty': specialty_list,
-                'experience_duration': experience,
+                'experience_duration': experience_duration,
+                'experience': experience,
                 'city': city,
-                'general_expertise': general_expertise
+                'general_expertise': general_expertise,
+                'link_to_website': profile_url,
+                'services_offered': 'Online',
+                'country': 'United States',
+                'state': state,
+                'state_code': state_code,
+                'type_of_therapy': 'Individual Therapy',
+                'payment_method': ['Credit Card', 'PayPal'],
+                'clinical_approaches': clinical_approaches,
+                'online_offered': online_offered,
+                'about': about,
+                'languages': languages,
+                'gender': gender,
+                'other_traits': other_traits
             }
             therapists.append(therapist_data)
-            logging.info(f"Extracted data for therapist: {name} in city: {city}")
+            logging.info(f"Extracted data for therapist: {name} in city: {city} with filters: languages={languages}, gender={gender}, other_traits={other_traits}")
             # Save immediately to avoid data loss
             save_therapists_data([therapist_data])
             existing_names.add(name.lower())
@@ -228,7 +473,7 @@ def extract_therapist_info(page, browser, existing_names, user_agents):
             profile_page.close()
         return []
 
-def save_therapists_data(new_data, result_file='scripts/therapists_result.json'):
+def save_therapists_data(new_data, result_file='therapists_result.json'):
     """Save therapists data to file, ensuring valid JSON."""
     try:
         existing_data = []
@@ -269,7 +514,7 @@ def main():
 
             # Load existing therapists
             existing_names = set()
-            result_file = 'scripts/therapists_result.json'
+            result_file = 'therapists_result.json'
             if os.path.exists(result_file):
                 try:
                     with open(result_file, 'r', encoding='utf-8') as f:
@@ -285,10 +530,10 @@ def main():
                 if proxies and proxy_index < len(proxies):
                     proxy_config = proxies[proxy_index]
                     logging.info(f"Using proxy: {proxy_config['server']}")
-                    return p.chromium.launch(headless=True, proxy=proxy_config, args=[f'--user-agent={selected_user_agent}'])
+                    return p.chromium.launch(headless=False, proxy=proxy_config, args=[f'--user-agent={selected_user_agent}'])
                 else:
                     logging.info("No proxy used")
-                    return p.chromium.launch(headless=True, args=[f'--user-agent={selected_user_agent}'])
+                    return p.chromium.launch(headless=False, args=[f'--user-agent={selected_user_agent}'])
 
             # Initialize browser
             browser = init_browser()
@@ -315,7 +560,7 @@ def main():
             print(all_links)
             therapists_data = []
 
-            # Loop through city links (limit to 5 for testing)
+            # Loop through city links
             for link in all_links:
                 random_wait(2, 5)
                 attempt = 1
@@ -323,8 +568,29 @@ def main():
                     logging.info(f"Visiting {link} (Attempt {attempt}/{max_retries})")
                     try:
                         page.goto(link, wait_until='networkidle', timeout=15000)
-                        therapists = extract_therapist_info(page, browser, existing_names, user_agents)
-                        therapists_data.extend(therapists)
+                        # Apply filters and get URLs with filter parameters
+                        filter_urls = apply_filters(page, link, user_agents)
+                        for item in filter_urls:
+                            if isinstance(item, tuple) and len(item) == 2:
+                                filter_url, filters = item
+                            else:
+                                filter_url = item
+                                filters = {}
+                            logging.info(f"Processing filtered URL: {filter_url} with filters: {filters}")
+                            attempt_filter = 1
+                            while attempt_filter <= max_retries:
+                                try:
+                                    page.goto(filter_url, wait_until='networkidle', timeout=15000)
+                                    therapists = extract_therapist_info(page, browser, existing_names, user_agents, filters)
+                                    therapists_data.extend(therapists)
+                                    break
+                                except Exception as e:
+                                    logging.error(f"Failed to process {filter_url} on attempt {attempt_filter}: {str(e)}")
+                                    attempt_filter += 1
+                                    if attempt_filter > max_retries:
+                                        logging.error(f"Failed to process {filter_url} after {max_retries} attempts")
+                                        break
+                                    random_wait(2, 5)
                         break
                     except Exception as e:
                         logging.error(f"Failed to process {link} on attempt {attempt}: {str(e)}")
