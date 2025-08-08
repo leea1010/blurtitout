@@ -55,8 +55,6 @@ class Therapist extends Model
         'specialty' => 'array',
         'general_expertise' => 'array',
         'online_offered' => 'array',
-        'state' => 'array',
-        'state_code' => 'array',
         'clinnical_approaches' => 'array',
         'payment_method' => 'array',
         'languages' => 'array',
@@ -80,12 +78,12 @@ class Therapist extends Model
 
     public function getStateAttribute($value)
     {
-        return $this->decodeJsonAttribute($value);
+        return $this->decodeStringAttribute($value);
     }
 
     public function getStateCodeAttribute($value)
     {
-        return $this->decodeJsonAttribute($value);
+        return $this->decodeStringAttribute($value);
     }
 
     public function getClinnicalApproachesAttribute($value)
@@ -123,5 +121,29 @@ class Therapist extends Model
             }
         }
         return is_array($value) ? $value : [];
+    }
+
+    /**
+     * Helper method to decode string attributes (for state, state_code)
+     */
+    private function decodeStringAttribute($value)
+    {
+        if (is_string($value)) {
+            // Try to decode the JSON string first
+            $decoded = json_decode($value, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                // If it's an array, get the first element
+                if (is_array($decoded) && !empty($decoded)) {
+                    return $decoded[0];
+                }
+                // If it's a string, return it
+                if (is_string($decoded)) {
+                    return $decoded;
+                }
+            }
+            // If JSON decode fails, return the original string
+            return $value;
+        }
+        return $value;
     }
 }

@@ -230,7 +230,7 @@ class ScrapeReinsData extends Command
             // Prepare data for database
             $dbData = [
                 'avatar' => $this->cleanValue($therapistData['avatar'] ?? null),
-                'avatar_list' => $this->cleanValue($therapistData['avatar_local_path'] ?? null),
+                'avatar_list' => null,
                 'name_prefix' => null, // Không có trong dữ liệu
                 'name' => $this->cleanValue($therapistData['name']),
                 'title' => $this->cleanValue($therapistData['title'] ?? null),
@@ -243,12 +243,12 @@ class ScrapeReinsData extends Command
                 'city' => $this->cleanValue($therapistData['city'] ?? null),
                 'zip_code' => null, // Không có trong dữ liệu
                 'state' => $this->convertStateCodes($therapistData['state'] ?? null),
-                'state_code' => $this->cleanArray($therapistData['state_code'] ?? null),
+                'state_code' => $this->cleanValue(is_array($therapistData['state'] ?? null) ? ($therapistData['state'][0] ?? null) : ($therapistData['state'] ?? null)),
                 'gender' => $this->cleanValue($therapistData['gender'] ?? null),
                 'email' => null, // Không có trong dữ liệu
                 'phone_number' => null, // Không có trong dữ liệu
                 'link_to_website' => $this->cleanValue($therapistData['link_to_website'] ?? null),
-                'identifies_as_tag' => $this->cleanValue($therapistData['other_traits'] ?? null),
+                'identifies_as_tag' => null,
                 'specialty' => $this->cleanArray($therapistData['specialty'] ?? null),
                 'general_expertise' => $this->cleanArray($therapistData['general_expertise'] ?? null),
                 'type_of_therapy' => $this->cleanValue($therapistData['type_of_therapy'] ?? null),
@@ -261,7 +261,7 @@ class ScrapeReinsData extends Command
                 'license' => $this->cleanValue($therapistData['license'] ?? null),
                 'certification' => null, // Không có trong dữ liệu
                 'education' => null, // Không có trong dữ liệu
-                'experience' => $this->cleanValue($therapistData['experience'] ?? null),
+                'experience' => null,
                 'experience_duration' => $this->cleanValue($therapistData['experience_duration'] ?? null),
                 'serves_ages' => null, // Không có trong dữ liệu
                 'community' => null, // Không có trong dữ liệu
