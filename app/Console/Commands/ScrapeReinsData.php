@@ -105,6 +105,87 @@ class ScrapeReinsData extends Command
     }
 
     /**
+     * Convert state codes to full state names
+     */
+    private function convertStateCodes($stateCodes): ?string
+    {
+        if (!is_array($stateCodes)) {
+            if ($stateCodes === null || $stateCodes === '' || $stateCodes === '') {
+                return null;
+            }
+            $stateCodes = [$stateCodes];
+        }
+
+        $stateMapping = [
+            'AL' => 'Alabama',
+            'AK' => 'Alaska',
+            'AZ' => 'Arizona',
+            'AR' => 'Arkansas',
+            'CA' => 'California',
+            'CO' => 'Colorado',
+            'CT' => 'Connecticut',
+            'DE' => 'Delaware',
+            'FL' => 'Florida',
+            'GA' => 'Georgia',
+            'HI' => 'Hawaii',
+            'ID' => 'Idaho',
+            'IL' => 'Illinois',
+            'IN' => 'Indiana',
+            'IA' => 'Iowa',
+            'KS' => 'Kansas',
+            'KY' => 'Kentucky',
+            'LA' => 'Louisiana',
+            'ME' => 'Maine',
+            'MD' => 'Maryland',
+            'MA' => 'Massachusetts',
+            'MI' => 'Michigan',
+            'MN' => 'Minnesota',
+            'MS' => 'Mississippi',
+            'MO' => 'Missouri',
+            'MT' => 'Montana',
+            'NE' => 'Nebraska',
+            'NV' => 'Nevada',
+            'NH' => 'New Hampshire',
+            'NJ' => 'New Jersey',
+            'NM' => 'New Mexico',
+            'NY' => 'New York',
+            'NC' => 'North Carolina',
+            'ND' => 'North Dakota',
+            'OH' => 'Ohio',
+            'OK' => 'Oklahoma',
+            'OR' => 'Oregon',
+            'PA' => 'Pennsylvania',
+            'RI' => 'Rhode Island',
+            'SC' => 'South Carolina',
+            'SD' => 'South Dakota',
+            'TN' => 'Tennessee',
+            'TX' => 'Texas',
+            'UT' => 'Utah',
+            'VT' => 'Vermont',
+            'VA' => 'Virginia',
+            'WA' => 'Washington',
+            'WV' => 'West Virginia',
+            'WI' => 'Wisconsin',
+            'WY' => 'Wyoming',
+            'DC' => 'District of Columbia',
+            'PR' => 'Puerto Rico',
+            'VI' => 'U.S. Virgin Islands',
+            'GU' => 'Guam',
+            'AS' => 'American Samoa',
+            'MP' => 'Northern Mariana Islands'
+        ];
+
+        // Get the first state code and convert it
+        $firstCode = strtoupper(trim($stateCodes[0]));
+        if (isset($stateMapping[$firstCode])) {
+            return $stateMapping[$firstCode];
+        }
+
+        // If code not found, return original value
+        return $firstCode;
+    }
+
+    /**
      * Import therapists data from JSON file to database
      */
     private function importTherapistsData(): void
@@ -161,7 +242,7 @@ class ScrapeReinsData extends Command
                 'street_address' => null, // Không có trong dữ liệu
                 'city' => $this->cleanValue($therapistData['city'] ?? null),
                 'zip_code' => null, // Không có trong dữ liệu
-                'state' => $this->cleanArray($therapistData['state'] ?? null),
+                'state' => $this->convertStateCodes($therapistData['state'] ?? null),
                 'state_code' => $this->cleanArray($therapistData['state_code'] ?? null),
                 'gender' => $this->cleanValue($therapistData['gender'] ?? null),
                 'email' => null, // Không có trong dữ liệu
@@ -184,7 +265,7 @@ class ScrapeReinsData extends Command
                 'experience_duration' => $this->cleanValue($therapistData['experience_duration'] ?? null),
                 'serves_ages' => null, // Không có trong dữ liệu
                 'community' => null, // Không có trong dữ liệu
-                'languages' => $this->cleanArray($therapistData['languages'] ?? null),
+                'languages' => $this->cleanArray($therapistData['languages'] ?? null) ?? json_encode(['English']),
                 'faq' => null, // Không có trong dữ liệu
                 'source' => 'BetterHelp',
             ];
