@@ -300,6 +300,7 @@ def extract_therapist_info(page, browser, existing_names, user_agents, filters=N
             experience_duration = ''
             experience = ''
             languages = ['']
+            link_to_website = ''  # Initialize with 
             try:
                 profile_link_element = card.query_selector('a:has-text("View Profile")')
                 if profile_link_element:
@@ -309,6 +310,24 @@ def extract_therapist_info(page, browser, existing_names, user_agents, filters=N
                         random_wait()
                         profile_page.goto(profile_url, wait_until='networkidle', timeout=15000)
                         logging.info(f"Visiting profile page for {name}: {profile_url}")
+                        
+                        # Extract "Work with me!" link
+                        try:
+                            profile_page.wait_for_selector('div.counselor-profile-header__cta a', timeout=10000)
+                            work_with_me_a = profile_page.query_selector('div.counselor-profile-header__cta a')
+                            if work_with_me_a:
+                                work_href = work_with_me_a.get_attribute('href')
+                                if work_href:
+                                    link_to_website = urljoin(profile_page.url, work_href)
+                                    logging.info(f"Extracted link_to_website for {name}: {link_to_website}")
+                                else:
+                                    logging.warning(f"No href found in Work with me button for {name}")
+                            else:
+                                logging.warning(f"No Work with me button found for {name} on {profile_url}")
+                        except TimeoutError:
+                            logging.error(f"Timeout waiting for Work with me button on {profile_url}")
+                        except Exception as e:
+                            logging.error(f"Error extracting Work with me link for {name} on {profile_url}: {str(e)}")
                         
                         # Extract title from profile page
                         try:
@@ -430,6 +449,11 @@ def extract_therapist_info(page, browser, existing_names, user_agents, filters=N
                 languages = [filters.get('languages', '')] if filters else ['']
                 logging.info(f"No valid languages from profile for {name}, using filter language: {languages}")
             
+            # Default to ['English'] if languages is still empty or ['']
+            if not languages or languages == ['']:
+                languages = ['English']
+                logging.info(f"No valid languages from profile or filter for {name}, defaulting to: {languages}")
+            
             # Use filter values for gender and other_traits
             gender = filters.get('identities', '') if filters else ''
             other_traits = filters.get('preferences', '') if filters else ''
@@ -445,7 +469,7 @@ def extract_therapist_info(page, browser, existing_names, user_agents, filters=N
                 'experience': experience,
                 'city': city,
                 'general_expertise': general_expertise,
-                'link_to_website': profile_url,
+                'link_to_website': link_to_website,
                 'services_offered': 'Online',
                 'country': 'United States',
                 'state': state,

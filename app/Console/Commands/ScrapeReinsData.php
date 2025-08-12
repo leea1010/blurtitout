@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Therapist;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 
@@ -33,7 +34,7 @@ class ScrapeReinsData extends Command
 
         try {
             $this->info('Starting Python scraping script...');
-            $this->runPythonScript($scriptPath, $PROXY_LIST);
+            // $this->runPythonScript($scriptPath, $PROXY_LIST);
             $this->info('Python script completed successfully.');
 
             // Import data to database after scraping
@@ -116,6 +117,11 @@ class ScrapeReinsData extends Command
             $stateCodes = [$stateCodes];
         }
 
+        // Check if array is empty or first element is empty
+        if (empty($stateCodes) || !isset($stateCodes[0]) || $stateCodes[0] === '' || $stateCodes[0] === null) {
+            return null;
+        }
+
         $stateMapping = [
             'AL' => 'Alabama',
             'AK' => 'Alaska',
@@ -186,6 +192,26 @@ class ScrapeReinsData extends Command
     }
 
     /**
+     * Get first element from array safely
+     */
+    private function getFirstElement($array): ?string
+    {
+        if (!is_array($array)) {
+            if ($array === null || $array === '' || $array === '') {
+                return null;
+            }
+            return $array;
+        }
+
+        // Check if array is empty or first element is empty
+        if (empty($array) || !isset($array[0]) || $array[0] === '' || $array[0] === null) {
+            return null;
+        }
+
+        return $this->cleanValue($array[0]);
+    }
+
+    /**
      * Import therapists data from JSON file to database
      */
     private function importTherapistsData(): void
@@ -243,12 +269,12 @@ class ScrapeReinsData extends Command
                 'city' => $this->cleanValue($therapistData['city'] ?? null),
                 'zip_code' => null, // Không có trong dữ liệu
                 'state' => $this->convertStateCodes($therapistData['state'] ?? null),
-                'state_code' => $this->cleanValue(is_array($therapistData['state'] ?? null) ? ($therapistData['state'][0] ?? null) : ($therapistData['state'] ?? null)),
+                'state_code' => $this->getFirstElement($therapistData['state_code'] ?? null),
                 'gender' => $this->cleanValue($therapistData['gender'] ?? null),
                 'email' => null, // Không có trong dữ liệu
                 'phone_number' => null, // Không có trong dữ liệu
                 'link_to_website' => $this->cleanValue($therapistData['link_to_website'] ?? null),
-                'identifies_as_tag' => null,
+                'identifies_as_tag' => $this->cleanValue($therapistData['other_traits'] ?? null), // Map other_traits to identifies_as_tag
                 'specialty' => $this->cleanArray($therapistData['specialty'] ?? null),
                 'general_expertise' => $this->cleanArray($therapistData['general_expertise'] ?? null),
                 'type_of_therapy' => $this->cleanValue($therapistData['type_of_therapy'] ?? null),
@@ -261,7 +287,7 @@ class ScrapeReinsData extends Command
                 'license' => $this->cleanValue($therapistData['license'] ?? null),
                 'certification' => null, // Không có trong dữ liệu
                 'education' => null, // Không có trong dữ liệu
-                'experience' => null,
+                'experience' => $this->cleanValue($therapistData['experience'] ?? null),
                 'experience_duration' => $this->cleanValue($therapistData['experience_duration'] ?? null),
                 'serves_ages' => null, // Không có trong dữ liệu
                 'community' => null, // Không có trong dữ liệu
@@ -271,9 +297,16 @@ class ScrapeReinsData extends Command
             ];
 
             try {
+                // Debug: Log processed data before creating
+                Log::info('Processing therapist: ' . $therapistData['name']);
+                Log::info('Processed data', $dbData);
+
                 Therapist::create($dbData);
                 $importedCount++;
             } catch (\Exception $e) {
+                Log::error("Failed to import therapist: {$therapistData['name']} - " . $e->getMessage());
+                Log::error('Original data', $therapistData);
+                Log::error('Processed data', $dbData);
                 $this->warn("Failed to import therapist: {$therapistData['name']} - " . $e->getMessage());
                 $skippedCount++;
             }
