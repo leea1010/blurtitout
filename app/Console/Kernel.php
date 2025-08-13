@@ -15,9 +15,9 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Import therapists data every 5 minutes
+        // Import therapists data every minute
         $schedule->command('app:import-therapists')
-            ->everyFiveMinutes()
+            ->everyMinute()
             ->withoutOverlapping()
             ->before(function () {
                 Log::info('Import therapists data command started at ' . now());

@@ -19,3 +19,5 @@ yarn-error.log
 /.idea
 /.vscode
 /scripts/result_*.txt
+scripts/images/
+scripts/therapists_result.json
