@@ -142,12 +142,12 @@ class ImportTherapistsData extends Command
             'city' => $this->cleanValue($therapistData['city'] ?? null),
             'zip_code' => null,
             'state' => $this->convertStateCodes($therapistData['state'] ?? null),
-            'state_code' => $this->getFirstElement($therapistData['state_code'] ?? null),
+            'state_code' => $this->getFirstElement($therapistData['state'] ?? null), // Use 'state' field for state_code
             'gender' => $this->cleanValue($therapistData['gender'] ?? null),
             'email' => null,
             'phone_number' => null,
             'link_to_website' => $this->cleanValue($therapistData['link_to_website'] ?? null),
-            'identifies_as_tag' => $this->cleanValue($therapistData['other_traits'] ?? null),
+            'identifies_as_tag' => null, // Map other_traits to identifies_as_tag
             'specialty' => $this->cleanArray($therapistData['specialty'] ?? null),
             'general_expertise' => $this->cleanArray($therapistData['general_expertise'] ?? null),
             'type_of_therapy' => $this->cleanValue($therapistData['type_of_therapy'] ?? null),
@@ -160,7 +160,7 @@ class ImportTherapistsData extends Command
             'license' => $this->cleanValue($therapistData['license'] ?? null),
             'certification' => null,
             'education' => null,
-            'experience' => $this->cleanValue($therapistData['experience'] ?? null),
+            'experience' => null,
             'experience_duration' => $this->cleanValue($therapistData['experience_duration'] ?? null),
             'serves_ages' => null,
             'community' => null,
