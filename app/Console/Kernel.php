@@ -15,39 +15,43 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Run scrape reins data command daily at 1:00 AM
-        $schedule->command('app:scrape-reins-data')
-            ->dailyAt('01:00')
+        // Import therapists data every 5 minutes
+        $schedule->command('app:import-therapists')
+            ->everyFiveMinutes()
             ->withoutOverlapping()
             ->before(function () {
-                Log::info('Scrape REINS data command started at ' . now() . ' (1:00 AM schedule)');
+                Log::info('Import therapists data command started at ' . now());
             })
             ->after(function () {
-                Log::info('Scrape REINS data command finished at ' . now() . ' (1:00 AM schedule)');
+                Log::info('Import therapists data command finished at ' . now());
             })
             ->onFailure(function () {
-                Log::error('Scrape REINS data command failed at ' . now() . ' (1:00 AM schedule)');
+                Log::error('Import therapists data command failed at ' . now());
             })
             ->onSuccess(function () {
-                Log::info('Scrape REINS data command completed successfully at ' . now() . ' (1:00 AM schedule)');
+                Log::info('Import therapists data command completed successfully at ' . now());
             });
 
-        // Run scrape reins data command daily at 12:00 PM (noon)
-        $schedule->command('app:scrape-reins-data')
-            ->dailyAt('12:00')
+        // Scrape therapists data - restart every 6 hours to ensure stability
+        $schedule->command('app:scrape-therapists')
+            ->everySixHours()
             ->withoutOverlapping()
             ->before(function () {
-                Log::info('Scrape REINS data command started at ' . now() . ' (12:00 PM schedule)');
+                Log::info('Scrape therapists data command started at ' . now());
             })
             ->after(function () {
-                Log::info('Scrape REINS data command finished at ' . now() . ' (12:00 PM schedule)');
+                Log::info('Scrape therapists data command finished at ' . now());
             })
             ->onFailure(function () {
-                Log::error('Scrape REINS data command failed at ' . now() . ' (12:00 PM schedule)');
+                Log::error('Scrape therapists data command failed at ' . now());
             })
             ->onSuccess(function () {
-                Log::info('Scrape REINS data command completed successfully at ' . now() . ' (12:00 PM schedule)');
+                Log::info('Scrape therapists data command completed successfully at ' . now());
             });
+
+        // Note: The scraping command is designed to run continuously
+        // It will be restarted every 6 hours to ensure stability
+        // For manual start: php artisan app:scrape-therapists
     }
 
     /**
