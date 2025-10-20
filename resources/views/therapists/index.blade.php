@@ -49,6 +49,7 @@
                     <th style="width: 150px;">Name</th>
                     <th style="width: 120px;">Title</th>
                     <th style="width: 100px;">City</th>
+                    <th style="width: 100px;">State</th>
                     <th style="width: 80px;">Country</th>
                     <th style="width: 60px;">Gender</th>
                     <th style="width: 80px;">Experience</th>
@@ -93,6 +94,13 @@
                     <td>
                         @if($therapist->city)
                         <span class="badge badge-light">{{ $therapist->city }}</span>
+                        @else
+                        <span class="text-muted">-</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if($therapist->state)
+                        <span class="badge badge-light">{{ $therapist->state }}</span>
                         @else
                         <span class="text-muted">-</span>
                         @endif

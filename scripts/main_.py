@@ -11,25 +11,15 @@ from datetime import datetime
 import validators
 import uuid
 from itertools import product
-import csv
-import multiprocessing
-from functools import partial
 
-# Initialize a lock for thread-safe file writing
-lock = multiprocessing.Lock()
+# Configure logging to console only
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 
-# Configure logging to console and file for each process
-def setup_logging(process_id):
-    logging.basicConfig(
-        level=logging.INFO,
-        format=f'%(asctime)s - %(levelname)s - [Process {process_id}] - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(f'scraper_process_{process_id}.log')
-        ]
-    )
-
-def random_wait(min_wait=0, max_wait=1):
+def random_wait(min_wait=0, max_wait=3):
     """Wait for a random time between min_wait and max_wait seconds."""
     wait_time = random.uniform(min_wait, max_wait)
     logging.info(f"Waiting for {wait_time:.2f} seconds")
@@ -120,7 +110,7 @@ def apply_filters(page, link, user_agents):
         filter_button = page.query_selector(filter_button_selector)
         if not filter_button:
             logging.error(f"Filter button not found on {link}")
-            return [(link, {})]
+            return [(link, {})]  # Return original link with empty filters if button not found
         filter_button.click()
         logging.info(f"Clicked filter button on {link}")
         random_wait(1, 2)
@@ -216,8 +206,8 @@ def apply_filters(page, link, user_agents):
         logging.debug(f"Filter modal HTML (error case): {modal_html}")
         return [(link, {})]
 
-def extract_therapist_info(page, browser, user_agents, filters=None):
-    """Extract therapist details from a page."""
+def extract_therapist_info(page, browser, existing_names, user_agents, filters=None):
+    """Extract therapist details from a page, skipping those already in existing_names."""
     therapists = []
     # Get base directory for saving images (same directory as the script)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -255,6 +245,11 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
                 name = name_element.inner_text() if name_element else ''
             except Exception as e:
                 logging.error(f"Error extracting name: {str(e)}")
+            
+            # Skip if name already exists
+            if name.lower() in existing_names:
+                logging.info(f"Skipping therapist {name} as it already exists")
+                continue
             
             # Avatar
             avatar_url = ''
@@ -305,8 +300,7 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
             experience_duration = ''
             experience = ''
             languages = ['']
-            link_to_website = ''
-            license_information = ['']
+            link_to_website = ''  # Initialize with 
             try:
                 profile_link_element = card.query_selector('a:has-text("View Profile")')
                 if profile_link_element:
@@ -358,25 +352,23 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
                         general_expertise = [elem.inner_text().strip() for elem in focus_elements if elem.inner_text().strip()] or []
                         logging.info(f"Extracted additional areas for {name}: {general_expertise}")
                         
-                        # Extract state, state_code, and license_information
+                        # Extract state and state_code from licensing section
                         try:
                             profile_page.wait_for_selector('div#licensing h2.content__title:has-text("License information")', timeout=10000)
                             license_elements = profile_page.query_selector_all('div#licensing p')
                             state_list = []
                             state_code_list = []
-                            license_texts = ['']
                             if license_elements:
                                 license_texts = [elem.inner_text().strip() for elem in license_elements if elem.inner_text().strip()]
                                 logging.info(f"Raw license texts for {name}: {license_texts}")
                                 for license_text in license_texts:
                                     license_parts = license_text.split()
-                                    if len(license_parts) >= 2:
+                                    if len(license_parts) >= 2:  # Expecting at least "AZ LPC-22691"
                                         state_list.append(license_parts[0])
                                         state_code_list.append(license_parts[-1])
                                 state = state_list
                                 state_code = state_code_list
-                                license_information = license_texts
-                                logging.info(f"Extracted state for {name}: {state}, state_code: {state_code}, license_information: {license_information}")
+                                logging.info(f"Extracted state for {name}: {state}, state_code: {state_code}")
                             else:
                                 logging.warning(f"No license information found for {name} on {profile_url}")
                         except TimeoutError:
@@ -411,7 +403,7 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
                             profile_page.wait_for_selector('div#about p', timeout=10000)
                             about_element = profile_page.query_selector('div#about p')
                             about = about_element.inner_text().strip() if about_element and about_element.inner_text().strip() else ''
-                            logging.info(f"Extracted about for {name}")
+                            logging.info(f"Extracted about for {name}: {about}")
                         except TimeoutError:
                             logging.error(f"Timeout waiting for about information on {profile_url}")
                         except Exception as e:
@@ -452,6 +444,11 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
             except Exception as e:
                 logging.error(f"Error extracting profile data for {name} at {profile_url}: {str(e)}")
             
+            # Use filter values for languages if profile languages are empty or ['']
+            if not languages or languages == ['']:
+                languages = [filters.get('languages', '')] if filters else ['']
+                logging.info(f"No valid languages from profile for {name}, using filter language: {languages}")
+            
             # Default to ['English'] if languages is still empty or ['']
             if not languages or languages == ['']:
                 languages = ['English']
@@ -484,13 +481,13 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
                 'about': about,
                 'languages': languages,
                 'gender': gender,
-                'other_traits': other_traits,
-                'license_information': license_information
+                'other_traits': other_traits
             }
             therapists.append(therapist_data)
             logging.info(f"Extracted data for therapist: {name} in city: {city} with filters: languages={languages}, gender={gender}, other_traits={other_traits}")
             # Save immediately to avoid data loss
-            save_therapists_data([therapist_data], result_file=f'therapists_result_process_{multiprocessing.current_process().name}.json')
+            save_therapists_data([therapist_data])
+            existing_names.add(name.lower())
         
         profile_page.close()
         return therapists
@@ -500,7 +497,7 @@ def extract_therapist_info(page, browser, user_agents, filters=None):
             profile_page.close()
         return []
 
-def save_therapists_data(new_data, result_file='therapists_result.json'):
+def save_therapists_data(new_data, result_file='scripts/therapists_result.json'):
     """Save therapists data to file, ensuring valid JSON."""
     try:
         existing_data = []
@@ -518,348 +515,130 @@ def save_therapists_data(new_data, result_file='therapists_result.json'):
     except Exception as e:
         logging.error(f"Error saving to {result_file}: {str(e)}")
 
-def save_city_state_done(city, state, done_file='city-state-done.csv'):
-    """Save a city-state pair to the done file in a thread-safe manner."""
-    try:
-        with lock:
-            with open(done_file, 'a', encoding='utf-8', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([city, state])
-            logging.info(f"Saved city-state pair to {done_file}: {city}, {state}")
-    except Exception as e:
-        logging.error(f"Error saving city-state pair to {done_file}: {str(e)}")
-
-def load_city_state_done(done_file='city-state-done.csv'):
-    """Load completed city-state pairs from the done file."""
-    done_pairs = set()
-    try:
-        if os.path.exists(done_file):
-            with open(done_file, 'r', encoding='utf-8') as f:
-                csv_reader = csv.reader(f)
-                for row in csv_reader:
-                    if len(row) >= 2:
-                        city, state = row[0].strip(), row[1].strip()
-                        done_pairs.add((city.lower(), state.lower()))
-                logging.info(f"Loaded {len(done_pairs)} city-state pairs from {done_file}")
-        else:
-            logging.info(f"No {done_file} found, starting with empty set")
-    except Exception as e:
-        logging.error(f"Error reading {done_file}: {str(e)}. Starting with empty set.")
-    return done_pairs
-
-def worker(city_state_pairs, proxies, user_agents, process_id):
-    """Worker function to process a subset of city-state pairs."""
-    setup_logging(process_id)
+def main():
+    # Initialize Playwright
     with sync_playwright() as p:
         try:
-            use_proxy = bool(proxies)  # Check if proxies list is not empty
+            # Define proxy list (example proxies, replace with real ones)
+            proxies = [
+                # Add more proxies as needed
+            ]
             proxy_index = 0
+
+            # Define User-Agent list
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
+                'Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+            ]
             selected_user_agent = random.choice(user_agents)
             logging.info(f"Using User-Agent: {selected_user_agent}")
-            logging.info(f"Running {'with proxies' if use_proxy else 'locally without proxies'}")
 
-            def init_browser(proxy_config=None):
-                if use_proxy and proxy_config:
-                    logging.info(f"Initializing browser with proxy: {proxy_config['server']}")
-                    return p.chromium.launch(
-                        headless=True,
-                        proxy=proxy_config,
-                        args=[f'--user-agent={selected_user_agent}']
-                    )
+            # Load existing therapists
+            existing_names = set()
+            result_file = 'therapists_result.json'
+            if os.path.exists(result_file):
+                try:
+                    with open(result_file, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                        existing_names = {item['name'].lower() for item in existing_data if 'name' in item}
+                    logging.info(f"Loaded {len(existing_names)} existing therapist names")
+                except Exception as e:
+                    logging.error(f"Error reading {result_file}: {str(e)}")
+
+            # Function to initialize browser
+            def init_browser():
+                nonlocal proxy_index
+                if proxies and proxy_index < len(proxies):
+                    proxy_config = proxies[proxy_index]
+                    logging.info(f"Using proxy: {proxy_config['server']}")
+                    return p.chromium.launch(headless=True, proxy=proxy_config, args=[f'--user-agent={selected_user_agent}'])
                 else:
-                    logging.info("Initializing browser without proxy (local connection)")
-                    return p.chromium.launch(
-                        headless=True,
-                        args=[f'--user-agent={selected_user_agent}']
-                    )
+                    logging.info("No proxy used")
+                    return p.chromium.launch(headless=True, args=[f'--user-agent={selected_user_agent}'])
 
-            browser = init_browser(proxies[proxy_index] if use_proxy else None)
+            # Initialize browser
+            browser = init_browser()
             page = browser.new_page()
+
+            # Navigate to therapists page
             base_url = "https://www.betterhelp.com/therapists/"
             max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    page.goto(base_url, wait_until='networkidle', timeout=15000)
+                    break
+                except TimeoutError:
+                    logging.error(f"Timeout accessing {base_url} on attempt {attempt + 1}")
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Failed to access {base_url} after {max_retries} attempts")
+                    random_wait(2, 5)
+
+            # Extract city and state links
+            page.wait_for_selector('div.tw-text-center ul.tw-columns-2.sm\\:tw-columns-3 a', timeout=15000)
+            city_links = page.query_selector_all('div.tw-text-center ul.tw-columns-2.sm\\:tw-columns-3 a')
+            all_links = [urljoin(base_url, link.get_attribute('href')) for link in city_links]
+            logging.info(f"Found {len(all_links)} city links")
+            print(all_links)
             therapists_data = []
 
-            for pair in city_state_pairs:
-                city = pair['city'].lower().replace(' ', '-')  # Format city name for URL
-                state = pair['state'].lower()
-                link = f"{base_url}{state}/{city}/"
-                
-                if use_proxy:
-                    while proxy_index < len(proxies):
-                        attempt = 1
-                        success = False
-                        while attempt <= max_retries:
-                            logging.info(f"Visiting {link} (Attempt {attempt}/{max_retries}, Proxy {proxy_index + 1}/{len(proxies)}: {proxies[proxy_index]['server']})")
-                            try:
-                                page.goto(link, wait_until='networkidle', timeout=15000)
-                                # Check breadcrumb for exactly 2 <i> elements
-                                breadcrumb_selector = 'div[role="breadcrumb"]'
+            # Loop through city links
+            for link in all_links:
+                random_wait(2, 5)
+                attempt = 1
+                while attempt <= max_retries:
+                    logging.info(f"Visiting {link} (Attempt {attempt}/{max_retries})")
+                    try:
+                        page.goto(link, wait_until='networkidle', timeout=15000)
+                        # Apply filters and get URLs with filter parameters
+                        filter_urls = apply_filters(page, link, user_agents)
+                        for item in filter_urls:
+                            if isinstance(item, tuple) and len(item) == 2:
+                                filter_url, filters = item
+                            else:
+                                filter_url = item
+                                filters = {}
+                            logging.info(f"Processing filtered URL: {filter_url} with filters: {filters}")
+                            attempt_filter = 1
+                            while attempt_filter <= max_retries:
                                 try:
-                                    page.wait_for_selector(breadcrumb_selector, timeout=10000)
-                                    breadcrumb = page.query_selector(breadcrumb_selector)
-                                    if breadcrumb:
-                                        li_elements = breadcrumb.query_selector_all('i')
-                                        li_count = len(li_elements)
-                                        logging.info(f"Found {li_count} <i> elements in breadcrumb for {link}")
-                                        if li_count != 2:
-                                            logging.warning(f"Breadcrumb does not contain exactly 2 <i> elements for {link}. Skipping to next city-state pair.")
-                                            success = True
-                                            break
-                                    else:
-                                        logging.warning(f"Breadcrumb div not found for {link}. Skipping to next city-state pair.")
-                                        success = True
-                                        break
-                                except TimeoutError:
-                                    logging.error(f"Timeout waiting for breadcrumb div on {link}. Skipping to next city-state pair.")
-                                    success = True
+                                    page.goto(filter_url, wait_until='networkidle', timeout=15000)
+                                    therapists = extract_therapist_info(page, browser, existing_names, user_agents, filters)
+                                    therapists_data.extend(therapists)
                                     break
                                 except Exception as e:
-                                    logging.error(f"Error checking breadcrumb for {link}: {str(e)}. Skipping to next city-state pair.")
-                                    success = True
-                                    break
-
-                                # Apply filters and get URLs with filter parameters
-                                filter_urls = apply_filters(page, link, user_agents)
-                                for item in filter_urls:
-                                    if isinstance(item, tuple) and len(item) == 2:
-                                        filter_url, filters = item
-                                    else:
-                                        filter_url = item
-                                        filters = {}
-                                    logging.info(f"Processing filtered URL: {filter_url} with filters: {filters}")
-                                    attempt_filter = 1
-                                    while attempt_filter <= max_retries:
-                                        try:
-                                            page.goto(filter_url, wait_until='networkidle', timeout=15000)
-                                            therapists = extract_therapist_info(page, browser, user_agents, filters)
-                                            therapists_data.extend(therapists)
-                                            success = True
-                                            break
-                                        except Exception as e:
-                                            logging.error(f"Failed to process {filter_url} on attempt {attempt_filter}: {str(e)}")
-                                            attempt_filter += 1
-                                            if attempt_filter > max_retries:
-                                                logging.error(f"Failed to process {filter_url} after {max_retries} attempts")
-                                                break
-                                            random_wait(2, 5)
-                                break
-                            except Exception as e:
-                                logging.error(f"Failed to process {link} on attempt {attempt}: {str(e)}")
-                                attempt += 1
-                                if attempt > max_retries:
-                                    logging.error(f"Failed to process {link} after {max_retries} attempts with proxy {proxies[proxy_index]['server']}")
-                                    break
-                                random_wait(2, 5)
-                        
-                        if success:
-                            # Save the city-state pair to the done file
-                            save_city_state_done(pair['city'], pair['state'])
-                            break
-                        else:
-                            proxy_index += 1
-                            if proxy_index < len(proxies):
-                                logging.info(f"Switching to next proxy (index {proxy_index}): {proxies[proxy_index]['server']}")
+                                    logging.error(f"Failed to process {filter_url} on attempt {attempt_filter}: {str(e)}")
+                                    attempt_filter += 1
+                                    if attempt_filter > max_retries:
+                                        logging.error(f"Failed to process {filter_url} after {max_retries} attempts")
+                                        break
+                                    random_wait(2, 5)
+                        break
+                    except Exception as e:
+                        logging.error(f"Failed to process {link} on attempt {attempt}: {str(e)}")
+                        attempt += 1
+                        if attempt > max_retries:
+                            if proxies and proxy_index < len(proxies) - 1:
+                                proxy_index += 1
+                                logging.info(f"Switching to next proxy (index {proxy_index})")
                                 browser.close()
-                                browser = init_browser(proxies[proxy_index])
+                                browser = init_browser()
                                 page = browser.new_page()
+                                attempt = 1
+                                continue
                             else:
-                                logging.error(f"All proxies failed for {link}. Stopping process {process_id}.")
-                                if therapists_data:
-                                    save_therapists_data(therapists_data, result_file=f'therapists_result_process_{process_id}.json')
-                                # Save the city-state pair even if it failed to ensure it is not retried
-                                save_city_state_done(pair['city'], pair['state'])
-                                return  # Stop the process immediately
-                else:
-                    # Run locally without proxies
-                    attempt = 1
-                    success = False
-                    while attempt <= max_retries:
-                        logging.info(f"Visiting {link} (Attempt {attempt}/{max_retries}, Local connection)")
-                        try:
-                            page.goto(link, wait_until='networkidle', timeout=15000)
-                            # Check breadcrumb for exactly 2 <i> elements
-                            breadcrumb_selector = 'div[role="breadcrumb"]'
-                            try:
-                                page.wait_for_selector(breadcrumb_selector, timeout=10000)
-                                breadcrumb = page.query_selector(breadcrumb_selector)
-                                if breadcrumb:
-                                    li_elements = breadcrumb.query_selector_all('i')
-                                    li_count = len(li_elements)
-                                    logging.info(f"Found {li_count} <i> elements in breadcrumb for {link}")
-                                    if li_count != 2:
-                                        logging.warning(f"Breadcrumb does not contain exactly 2 <i> elements for {link}. Skipping to next city-state pair.")
-                                        success = True
-                                        break
-                                else:
-                                    logging.warning(f"Breadcrumb div not found for {link}. Skipping to next city-state pair.")
-                                    success = True
-                                    break
-                            except TimeoutError:
-                                logging.error(f"Timeout waiting for breadcrumb div on {link}. Skipping to next city-state pair.")
-                                success = True
+                                logging.error(f"Failed to process {link} after {max_retries} attempts")
                                 break
-                            except Exception as e:
-                                logging.error(f"Error checking breadcrumb for {link}: {str(e)}. Skipping to next city-state pair.")
-                                success = True
-                                break
-
-                            # Apply filters and get URLs with filter parameters
-                            filter_urls = apply_filters(page, link, user_agents)
-                            for item in filter_urls:
-                                if isinstance(item, tuple) and len(item) == 2:
-                                    filter_url, filters = item
-                                else:
-                                    filter_url = item
-                                    filters = {}
-                                logging.info(f"Processing filtered URL: {filter_url} with filters: {filters}")
-                                attempt_filter = 1
-                                while attempt_filter <= max_retries:
-                                    try:
-                                        page.goto(filter_url, wait_until='networkidle', timeout=15000)
-                                        therapists = extract_therapist_info(page, browser, user_agents, filters)
-                                        therapists_data.extend(therapists)
-                                        success = True
-                                        break
-                                    except Exception as e:
-                                        logging.error(f"Failed to process {filter_url} on attempt {attempt_filter}: {str(e)}")
-                                        attempt_filter += 1
-                                        if attempt_filter > max_retries:
-                                            logging.error(f"Failed to process {filter_url} after {max_retries} attempts")
-                                            break
-                                        random_wait(2, 5)
-                            break
-                        except Exception as e:
-                            logging.error(f"Failed to process {link} on attempt {attempt}: {str(e)}")
-                            attempt += 1
-                            if attempt > max_retries:
-                                logging.error(f"Failed to process {link} after {max_retries} attempts with local connection. Stopping process {process_id}.")
-                                if therapists_data:
-                                    save_therapists_data(therapists_data, result_file=f'therapists_result_process_{process_id}.json')
-                                # Save the city-state pair even if it failed to ensure it is not retried
-                                save_city_state_done(pair['city'], pair['state'])
-                                return  # Stop the process immediately
-                            random_wait(2, 5)
-
-                    # Save the city-state pair to the done file if successful
-                    if success:
-                        save_city_state_done(pair['city'], pair['state'])
-
-            if therapists_data:
-                save_therapists_data(therapists_data, result_file=f'therapists_result_process_{process_id}.json')
 
         except Exception as e:
-            logging.error(f"An error occurred in process {process_id}: {str(e)}")
+            logging.error(f"An error occurred: {str(e)}")
             if therapists_data:
-                save_therapists_data(therapists_data, result_file=f'therapists_result_process_{process_id}.json')
+                save_therapists_data(therapists_data)
         finally:
-            if 'browser' in locals():
+            if browser:
                 browser.close()
-
-def merge_results():
-    """Merge all process result JSON files into a single file."""
-    final_result_file = 'therapists_result.json'
-    all_data = []
-    for process_id in range(2):  # Assuming 2 processes
-        result_file = f'therapists_result_process_{process_id}.json'
-        if os.path.exists(result_file):
-            try:
-                with open(result_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    all_data.extend(data)
-                logging.info(f"Merged data from {result_file}")
-            except Exception as e:
-                logging.error(f"Error reading {result_file}: {str(e)}")
-    
-    if all_data:
-        try:
-            with open(final_result_file, 'w', encoding='utf-8') as f:
-                json.dump(all_data, f, ensure_ascii=False, indent=4)
-            logging.info(f"Merged {len(all_data)} records into {final_result_file}")
-        except Exception as e:
-            logging.error(f"Error saving merged data to {final_result_file}: {str(e)}")
-
-def main():
-    # Setup main process logging
-    setup_logging('main')
-    
-    # Define proxy list (can be empty to run locally)
-    proxies = [
-        # {'server': 'http://23.95.150.145:6114', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-        # {'server': 'http://198.23.239.134:6540', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-        # {'server': 'http://45.38.107.97:6014', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-        # {'server': 'http://107.172.163.27:6543', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-        # {'server': 'http://216.10.27.159:6837', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-        # {'server': 'http://136.0.207.84:6661', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-        # {'server': 'http://142.147.128.93:6593', 'username': 'pesiezxj', 'password': '3v0v8uhws8l4'},
-    ]
-    
-    # Define User-Agent list
-    user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
-        'Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-    ]
-
-    # Load city-state pairs from CSV file
-    city_state_pairs = []
-    csv_file_path = 'city-state.csv'
-    try:
-        with open(csv_file_path, 'r', encoding='utf-8') as csv_file:
-            csv_reader = csv.reader(csv_file)
-            for row in csv_reader:
-                if len(row) >= 2:
-                    city, state = row[0].strip(), row[1].strip()
-                    if city and state:
-                        city_state_pairs.append({'city': city, 'state': state})
-                    else:
-                        logging.warning(f"Skipping invalid row in CSV: {row}")
-                else:
-                    logging.warning(f"Skipping malformed row in CSV: {row}")
-        logging.info(f"Loaded {len(city_state_pairs)} city-state pairs from {csv_file_path}")
-    except FileNotFoundError:
-        logging.error(f"CSV file not found: {csv_file_path}. Exiting.")
-        return
-    except Exception as e:
-        logging.error(f"Error reading CSV file {csv_file_path}: {str(e)}. Exiting.")
-        return
-
-    # Load completed city-state pairs and filter out duplicates
-    done_pairs = load_city_state_done()
-    original_count = len(city_state_pairs)
-    city_state_pairs = [pair for pair in city_state_pairs if (pair['city'].lower(), pair['state'].lower()) not in done_pairs]
-    logging.info(f"Filtered out {original_count - len(city_state_pairs)} already processed city-state pairs. Remaining: {len(city_state_pairs)}")
-
-    # Check if proxies list is empty
-    if not proxies:
-        logging.info("Proxy list is empty. Running locally without proxies.")
-        proxies_1 = []
-        proxies_2 = []
-    else:
-        # Split proxies for two processes
-        proxy_split = len(proxies) // 2
-        proxies_1 = proxies[:proxy_split + (len(proxies) % 2)]  # Ensure first process gets extra proxy if odd number
-        proxies_2 = proxies[proxy_split + (len(proxies) % 2):]
-        logging.info(f"Proxies for process 0: {[p['server'] for p in proxies_1]}")
-        logging.info(f"Proxies for process 1: {[p['server'] for p in proxies_2]}")
-
-    # Split city-state pairs for two processes
-    split_index = len(city_state_pairs) // 2
-    city_state_pairs_1 = city_state_pairs[:split_index]
-    city_state_pairs_2 = city_state_pairs[split_index:]
-    logging.info(f"Process 0 will handle {len(city_state_pairs_1)} city-state pairs")
-    logging.info(f"Process 1 will handle {len(city_state_pairs_2)} city-state pairs")
-
-    # Run two processes
-    with multiprocessing.Pool(processes=2) as pool:
-        pool.starmap(worker, [
-            (city_state_pairs_1, proxies_1, user_agents, 0),
-            (city_state_pairs_2, proxies_2, user_agents, 1)
-        ])
-
-    # Merge results from both processes
-    merge_results()
 
 if __name__ == "__main__":
     main()

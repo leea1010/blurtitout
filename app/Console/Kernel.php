@@ -18,36 +18,13 @@ class Kernel extends ConsoleKernel
         // Import therapists data every minute
         $schedule->command('app:import-therapists')
             ->everyMinute()
-            ->withoutOverlapping()
-            ->before(function () {
-                Log::info('Import therapists data command started at ' . now());
-            })
-            ->after(function () {
-                Log::info('Import therapists data command finished at ' . now());
-            })
-            ->onFailure(function () {
-                Log::error('Import therapists data command failed at ' . now());
-            })
-            ->onSuccess(function () {
-                Log::info('Import therapists data command completed successfully at ' . now());
-            });
+            ->withoutOverlapping();
 
         // Scrape therapists data - restart every 6 hours to ensure stability
         $schedule->command('app:scrape-therapists')
-            ->everySixHours()
+            ->everyMinute()
             ->withoutOverlapping()
-            ->before(function () {
-                Log::info('Scrape therapists data command started at ' . now());
-            })
-            ->after(function () {
-                Log::info('Scrape therapists data command finished at ' . now());
-            })
-            ->onFailure(function () {
-                Log::error('Scrape therapists data command failed at ' . now());
-            })
-            ->onSuccess(function () {
-                Log::info('Scrape therapists data command completed successfully at ' . now());
-            });
+            ->appendOutputTo(storage_path('logs/scrape-therapists.log'));
 
         // Note: The scraping command is designed to run continuously
         // It will be restarted every 6 hours to ensure stability

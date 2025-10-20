@@ -197,7 +197,6 @@ class CsvExportService
             'license' => 'License',
             'certification' => 'Certification',
             'education' => 'Education',
-            'experience' => 'Experience',
             'experience_duration' => 'Experience_Duration',
             'serves_ages' => 'Serves Ages',
             'community' => 'Community',

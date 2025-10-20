@@ -30,7 +30,7 @@ class TherapistController extends Controller
         }
 
         // Sort by newest first
-        $therapists = $query->orderBy('created_at', 'desc')->paginate(20);
+        $therapists = $query->orderBy('ID', 'desc')->paginate(500);
 
         return view('therapists.index', compact('therapists'));
     }
